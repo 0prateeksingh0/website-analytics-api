@@ -410,7 +410,6 @@ GOOGLE_CALLBACK_URL=http://localhost:3000/api/auth/google/callback
 2. Create feature branch (`git checkout -b feature/AmazingFeature`)
 3. Commit changes (`git commit -m 'Add AmazingFeature'`)
 4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Open Pull Request
 
 ---
 
@@ -423,11 +422,4 @@ This project is licensed under the MIT License.
 ## 📞 Support
 
 - Documentation: http://localhost:3000/api-docs
-- Issues: Open an issue on GitHub
-- Email: [Your email]
 
----
-
-**Built with Node.js, Express, PostgreSQL, Redis, and Docker** 🚀
-# website-analytics-api
-# website-analytics-api
