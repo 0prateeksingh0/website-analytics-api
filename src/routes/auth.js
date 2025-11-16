@@ -184,7 +184,7 @@ router.post('/register', isAuthenticated, authLimiter, async (req, res) => {
       description,
     });
 
-    // Generate API key
+    // Generate key
     const apiKey = generateApiKey();
     const apiKeyRecord = await ApiKey.create({
       appId: app.id,
@@ -244,7 +244,7 @@ router.get('/api-key', isAuthenticated, async (req, res) => {
     const { appId } = req.query;
 
     if (appId) {
-      // Get keys for specific app
+      // Get keys for app
       const isOwner = await App.isOwner(appId, req.user.id);
       if (!isOwner) {
         return res.status(403).json({
@@ -260,7 +260,7 @@ router.get('/api-key', isAuthenticated, async (req, res) => {
       });
     }
 
-    // Get all apps with their keys
+    // Get all apps
     const apps = await App.findByUserId(req.user.id);
     const appsWithKeys = await Promise.all(
       apps.map(async (app) => {
@@ -320,7 +320,7 @@ router.post('/revoke', isAuthenticated, authLimiter, async (req, res) => {
       });
     }
 
-    // Get the API key
+    // Get key
     const apiKey = await ApiKey.findById(keyId);
     if (!apiKey) {
       return res.status(404).json({
@@ -329,7 +329,7 @@ router.post('/revoke', isAuthenticated, authLimiter, async (req, res) => {
       });
     }
 
-    // Check if user owns the app
+    // Check ownership
     const isOwner = await App.isOwner(apiKey.app_id, req.user.id);
     if (!isOwner) {
       return res.status(403).json({
@@ -338,7 +338,7 @@ router.post('/revoke', isAuthenticated, authLimiter, async (req, res) => {
       });
     }
 
-    // Revoke the key
+    // Revoke key
     await ApiKey.revoke(keyId);
 
     res.json({
@@ -391,7 +391,7 @@ router.post('/regenerate', isAuthenticated, authLimiter, async (req, res) => {
       });
     }
 
-    // Check if user owns the app
+    // Check ownership
     const isOwner = await App.isOwner(appId, req.user.id);
     if (!isOwner) {
       return res.status(403).json({
@@ -400,7 +400,7 @@ router.post('/regenerate', isAuthenticated, authLimiter, async (req, res) => {
       });
     }
 
-    // Generate new API key
+    // Generate key
     const apiKey = generateApiKey();
     const apiKeyRecord = await ApiKey.create({
       appId,

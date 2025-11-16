@@ -1,7 +1,7 @@
 const { query } = require('../database/db');
 
 class User {
-  // Create a new user
+  // Create user
   static async create({ googleId, email, name, profilePicture }) {
     const text = `
       INSERT INTO users (google_id, email, name, profile_picture)
@@ -19,28 +19,28 @@ class User {
     return result.rows[0];
   }
 
-  // Find user by Google ID
+  // Find by Google ID
   static async findByGoogleId(googleId) {
     const text = 'SELECT * FROM users WHERE google_id = $1';
     const result = await query(text, [googleId]);
     return result.rows[0];
   }
 
-  // Find user by email
+  // Find by email
   static async findByEmail(email) {
     const text = 'SELECT * FROM users WHERE email = $1';
     const result = await query(text, [email]);
     return result.rows[0];
   }
 
-  // Find user by ID
+  // Find by ID
   static async findById(id) {
     const text = 'SELECT * FROM users WHERE id = $1';
     const result = await query(text, [id]);
     return result.rows[0];
   }
 
-  // Get all apps for a user
+  // Get apps for user
   static async getApps(userId) {
     const text = `
       SELECT a.*, COUNT(ak.id) as api_key_count

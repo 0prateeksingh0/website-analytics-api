@@ -12,7 +12,7 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-// Test connection
+// Events
 pool.on('connect', () => {
   console.log('Database connection established');
 });
@@ -22,7 +22,7 @@ pool.on('error', (err) => {
   process.exit(-1);
 });
 
-// Query helper with error handling
+// Query helper
 const query = async (text, params) => {
   const start = Date.now();
   try {

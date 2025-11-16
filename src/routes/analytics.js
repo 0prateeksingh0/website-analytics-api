@@ -82,7 +82,7 @@ router.post(
         metadata,
       } = req.body;
 
-      // Parse user agent if available
+      // Parse user agent
       const userAgent = req.headers['user-agent'];
       let browser, os, deviceType;
       
@@ -93,7 +93,7 @@ router.post(
         deviceType = device || (agent.device.family !== 'Other' ? 'mobile' : 'desktop');
       }
 
-      // Create analytics event
+      // Create event
       const analyticsEvent = await AnalyticsEvent.create({
         appId: req.appId,
         eventName: event,
@@ -112,7 +112,7 @@ router.post(
         city: metadata?.city,
       });
 
-      // Invalidate relevant caches
+      // Clear cache
       await cacheDelPattern(`analytics:${req.appId}:*`);
 
       res.status(201).json({
@@ -190,10 +190,10 @@ router.get(
 
       const { event, startDate, endDate, app_id } = req.query;
 
-      // Get user's apps
+      // Get apps
       let appIds;
       if (app_id) {
-        // Verify user owns the app
+        // Verify ownership
         const isOwner = await App.isOwner(app_id, req.user.id);
         if (!isOwner) {
           return res.status(403).json({
@@ -203,7 +203,7 @@ router.get(
         }
         appIds = [app_id];
       } else {
-        // Get all user's apps
+        // Get all apps
         const apps = await App.findByUserId(req.user.id);
         appIds = apps.map((app) => app.id);
       }
@@ -227,7 +227,7 @@ router.get(
         });
       }
 
-      // Get event summary
+      // Query events
       const summary = await AnalyticsEvent.getEventSummary({
         appIds,
         eventName: event,
@@ -235,7 +235,7 @@ router.get(
         endDate,
       });
 
-      // Format response
+      // Format data
       const formattedSummary = summary.map((s) => ({
         event: s.event_name,
         count: parseInt(s.count),
@@ -248,8 +248,8 @@ router.get(
         },
       }));
 
-      // Cache the result
-      await cacheSet(cacheKey, formattedSummary, 300); // 5 minutes TTL
+      // Cache result
+      await cacheSet(cacheKey, formattedSummary, 300);
 
       res.json({
         success: true,
@@ -311,7 +311,7 @@ router.get(
 
       const { userId, app_id } = req.query;
 
-      // Verify user owns the app
+      // Verify ownership
       const isOwner = await App.isOwner(app_id, req.user.id);
       if (!isOwner) {
         return res.status(403).json({

@@ -2,7 +2,7 @@ const { query } = require('../database/db');
 const { hashApiKey, getApiKeyPrefix, getExpiryDate } = require('../utils/apiKeyUtils');
 
 class ApiKey {
-  // Create a new API key
+  // Create key
   static async create({ appId, apiKey, name }) {
     const keyHash = hashApiKey(apiKey);
     const keyPrefix = getApiKeyPrefix(apiKey);
@@ -18,7 +18,7 @@ class ApiKey {
     return result.rows[0];
   }
 
-  // Find API key by hash
+  // Find by hash
   static async findByHash(keyHash) {
     const text = `
       SELECT ak.*, a.user_id, a.app_name 
@@ -30,7 +30,7 @@ class ApiKey {
     return result.rows[0];
   }
 
-  // Validate and get API key
+  // Validate key
   static async validateAndGet(apiKey) {
     const keyHash = hashApiKey(apiKey);
     const apiKeyRecord = await this.findByHash(keyHash);
@@ -39,23 +39,23 @@ class ApiKey {
       return null;
     }
 
-    // Check if key is active
+    // Check if active
     if (!apiKeyRecord.is_active) {
       return null;
     }
 
-    // Check if key is expired
+    // Check if expired
     if (apiKeyRecord.expires_at && new Date(apiKeyRecord.expires_at) < new Date()) {
       return null;
     }
 
-    // Update last used timestamp
+    // Update last used
     await this.updateLastUsed(apiKeyRecord.id);
 
     return apiKeyRecord;
   }
 
-  // Update last used timestamp
+  // Update last used
   static async updateLastUsed(id) {
     const text = `
       UPDATE api_keys 
@@ -65,7 +65,7 @@ class ApiKey {
     await query(text, [id]);
   }
 
-  // Get all API keys for an app
+  // Get keys for app
   static async findByAppId(appId) {
     const text = `
       SELECT id, app_id, key_prefix, name, is_active, expires_at, 
@@ -78,7 +78,7 @@ class ApiKey {
     return result.rows;
   }
 
-  // Revoke an API key
+  // Revoke key
   static async revoke(id) {
     const text = `
       UPDATE api_keys 
@@ -90,14 +90,14 @@ class ApiKey {
     return result.rows[0];
   }
 
-  // Delete an API key
+  // Delete key
   static async delete(id) {
     const text = 'DELETE FROM api_keys WHERE id = $1 RETURNING *';
     const result = await query(text, [id]);
     return result.rows[0];
   }
 
-  // Find API key by ID
+  // Find by ID
   static async findById(id) {
     const text = 'SELECT * FROM api_keys WHERE id = $1';
     const result = await query(text, [id]);

@@ -1,7 +1,7 @@
 const { query } = require('../database/db');
 
 class App {
-  // Create a new app
+  // Create app
   static async create({ userId, appName, appUrl, description }) {
     const text = `
       INSERT INTO apps (user_id, app_name, app_url, description)
