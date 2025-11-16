@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 -- Analytics Events table (partitioned for scalability)
 CREATE TABLE IF NOT EXISTS analytics_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID DEFAULT gen_random_uuid(),
     app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
     event_name VARCHAR(255) NOT NULL,
     url TEXT,
@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS analytics_events (
     screen_size VARCHAR(50),
     country VARCHAR(2),
     city VARCHAR(100),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, timestamp)
 ) PARTITION BY RANGE (timestamp);
 
 -- Create partitions for current and future months (example for 2024-2025)
