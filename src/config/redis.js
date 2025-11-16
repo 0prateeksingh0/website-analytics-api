@@ -5,13 +5,24 @@ let redisClient = null;
 
 const initRedis = async () => {
   try {
-    redisClient = redis.createClient({
-      socket: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: process.env.REDIS_PORT || 6379,
-      },
-      password: process.env.REDIS_PASSWORD || undefined,
-    });
+    // Support both REDIS_URL (for production) and individual variables (for local dev)
+    const redisUrl = process.env.REDIS_URL;
+    
+    if (redisUrl) {
+      // Use REDIS_URL if provided (Render, Railway, etc.)
+      redisClient = redis.createClient({
+        url: redisUrl,
+      });
+    } else {
+      // Fall back to individual variables for local development
+      redisClient = redis.createClient({
+        socket: {
+          host: process.env.REDIS_HOST || 'localhost',
+          port: process.env.REDIS_PORT || 6379,
+        },
+        password: process.env.REDIS_PASSWORD || undefined,
+      });
+    }
 
     redisClient.on('error', (err) => {
       console.error('Redis Client Error:', err);
