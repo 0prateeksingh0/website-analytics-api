@@ -9,7 +9,10 @@
     "test": "jest --coverage --detectOpenHandles",
     "test:watch": "jest --watch",
     "db:migrate": "node src/database/migrate.js",
-    "db:seed": "node src/database/seed.js"
+    "db:seed": "node src/database/seed.js",
+    "db:maintain": "node src/database/maintenance.js",
+    "db:maintain:full": "node src/database/maintenance.js --vacuum",
+    "db:maintain:cleanup": "node src/database/maintenance.js --drop-old-partitions"
   },
   "keywords": [
     "analytics",

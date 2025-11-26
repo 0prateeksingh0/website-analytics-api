@@ -110,3 +110,141 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
 CREATE TRIGGER update_apps_updated_at BEFORE UPDATE ON apps
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- Function to automatically create partitions for analytics_events
+CREATE OR REPLACE FUNCTION create_partition_if_not_exists(
+    partition_date DATE
+) RETURNS VOID AS $$
+DECLARE
+    partition_name TEXT;
+    start_date DATE;
+    end_date DATE;
+BEGIN
+    start_date := DATE_TRUNC('month', partition_date);
+    end_date := start_date + INTERVAL '1 month';
+    partition_name := 'analytics_events_' || TO_CHAR(start_date, 'YYYY_MM');
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = partition_name
+        AND n.nspname = 'public'
+    ) THEN
+        EXECUTE format(
+            'CREATE TABLE IF NOT EXISTS %I PARTITION OF analytics_events FOR VALUES FROM (%L) TO (%L)',
+            partition_name,
+            start_date,
+            end_date
+        );
+        RAISE NOTICE 'Created partition: %', partition_name;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to create partitions for the next N months
+CREATE OR REPLACE FUNCTION create_future_partitions(months_ahead INT DEFAULT 6)
+RETURNS VOID AS $$
+DECLARE
+    i INT;
+    partition_date DATE;
+BEGIN
+    FOR i IN 0..months_ahead LOOP
+        partition_date := DATE_TRUNC('month', CURRENT_DATE) + (i || ' months')::INTERVAL;
+        PERFORM create_partition_if_not_exists(partition_date);
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to drop old partitions (data retention policy)
+CREATE OR REPLACE FUNCTION drop_old_partitions(months_to_keep INT DEFAULT 12)
+RETURNS VOID AS $$
+DECLARE
+    partition_record RECORD;
+    cutoff_date DATE;
+BEGIN
+    cutoff_date := DATE_TRUNC('month', CURRENT_DATE) - (months_to_keep || ' months')::INTERVAL;
+
+    FOR partition_record IN
+        SELECT c.relname as partition_name
+        FROM pg_inherits
+        JOIN pg_class c ON c.oid = pg_inherits.inhrelid
+        JOIN pg_class p ON p.oid = pg_inherits.inhparent
+        WHERE p.relname = 'analytics_events'
+        AND c.relname ~ '^analytics_events_\d{4}_\d{2}$'
+    LOOP
+        -- Extract date from partition name and check if it's older than cutoff
+        DECLARE
+            partition_date DATE;
+            year_part TEXT;
+            month_part TEXT;
+        BEGIN
+            year_part := substring(partition_record.partition_name from 'analytics_events_(\d{4})_\d{2}');
+            month_part := substring(partition_record.partition_name from 'analytics_events_\d{4}_(\d{2})');
+            partition_date := (year_part || '-' || month_part || '-01')::DATE;
+
+            IF partition_date < cutoff_date THEN
+                EXECUTE format('DROP TABLE IF EXISTS %I', partition_record.partition_name);
+                RAISE NOTICE 'Dropped old partition: %', partition_record.partition_name;
+            END IF;
+        END;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create initial future partitions (current month + 11 months ahead)
+SELECT create_future_partitions(11);
+
+-- Additional indexes for improved query performance and scalability
+CREATE INDEX IF NOT EXISTS idx_analytics_country ON analytics_events(country) WHERE country IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_analytics_browser ON analytics_events(browser) WHERE browser IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_analytics_os ON analytics_events(os) WHERE os IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_analytics_session_id ON analytics_events(session_id) WHERE session_id IS NOT NULL;
+
+-- Composite index for common query patterns
+CREATE INDEX IF NOT EXISTS idx_analytics_app_timestamp ON analytics_events(app_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_app_event_timestamp ON analytics_events(app_id, event_name, timestamp DESC);
+
+-- Partial index for recent data (hot data)
+CREATE INDEX IF NOT EXISTS idx_analytics_recent ON analytics_events(timestamp DESC) 
+    WHERE timestamp > CURRENT_TIMESTAMP - INTERVAL '7 days';
+
+-- GIN index for JSONB metadata queries
+CREATE INDEX IF NOT EXISTS idx_analytics_metadata_gin ON analytics_events USING GIN (metadata);
+
+-- B-tree index for URL prefix searches
+CREATE INDEX IF NOT EXISTS idx_analytics_url ON analytics_events USING btree(url text_pattern_ops) WHERE url IS NOT NULL;
+
+-- Materialized view for aggregated daily statistics (improves dashboard queries)
+CREATE MATERIALIZED VIEW IF NOT EXISTS daily_analytics_summary AS
+SELECT 
+    app_id,
+    DATE(timestamp) as date,
+    event_name,
+    COUNT(*) as event_count,
+    COUNT(DISTINCT session_id) as unique_sessions,
+    COUNT(DISTINCT user_id) as unique_users,
+    COUNT(DISTINCT device) as unique_devices,
+    COUNT(DISTINCT country) as unique_countries
+FROM analytics_events
+GROUP BY app_id, DATE(timestamp), event_name
+WITH DATA;
+
+-- Index on materialized view
+CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_summary_unique ON daily_analytics_summary(app_id, date, event_name);
+CREATE INDEX IF NOT EXISTS idx_daily_summary_date ON daily_analytics_summary(date DESC);
+
+-- Function to refresh materialized view
+CREATE OR REPLACE FUNCTION refresh_daily_analytics()
+RETURNS VOID AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY daily_analytics_summary;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Enable pg_stat_statements extension for query performance monitoring
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-- Enable pg_trgm for text search optimization
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+
