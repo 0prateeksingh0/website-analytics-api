@@ -1,9 +1,10 @@
 const express = require('express');
 const { body, query, validationResult } = require('express-validator');
 const useragent = require('useragent');
-const { verifyApiKey } = require('../middleware/apiKey');
+const { verifyApiKey, requirePermission } = require('../middleware/apiKey');
 const { isAuthenticated } = require('../middleware/auth');
 const { eventCollectionLimiter, analyticsLimiter } = require('../middleware/rateLimiter');
+const { validateUUID, perUserRateLimit } = require('../middleware/security');
 const AnalyticsEvent = require('../models/AnalyticsEvent');
 const App = require('../models/App');
 const { cacheGet, cacheSet, cacheDelPattern } = require('../config/redis');
@@ -55,10 +56,16 @@ const router = express.Router();
 router.post(
   '/collect',
   verifyApiKey,
+  requirePermission('write'),
   eventCollectionLimiter,
   [
-    body('event').notEmpty().withMessage('Event name is required'),
+    body('event')
+      .notEmpty().withMessage('Event name is required')
+      .isLength({ max: 255 }).withMessage('Event name too long')
+      .matches(/^[a-zA-Z0-9_\-:.]+$/).withMessage('Event name contains invalid characters'),
+    body('url').optional().isLength({ max: 2048 }).withMessage('URL too long'),
     body('timestamp').optional().isISO8601().withMessage('Invalid timestamp format'),
+    body('metadata').optional().isObject().withMessage('Metadata must be an object'),
   ],
   async (req, res) => {
     try {
@@ -174,9 +181,16 @@ router.get(
   '/event-summary',
   isAuthenticated,
   analyticsLimiter,
+  perUserRateLimit(100, 60000), // 100 requests per minute per user
   [
     query('startDate').optional().isISO8601().withMessage('Invalid start date format'),
     query('endDate').optional().isISO8601().withMessage('Invalid end date format'),
+    query('app_id').optional().custom((value) => {
+      if (value && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+        throw new Error('Invalid app_id format');
+      }
+      return true;
+    }),
   ],
   async (req, res) => {
     try {
@@ -295,9 +309,14 @@ router.get(
   '/user-stats',
   isAuthenticated,
   analyticsLimiter,
+  perUserRateLimit(50, 60000), // 50 requests per minute per user
   [
-    query('userId').notEmpty().withMessage('User ID is required'),
-    query('app_id').notEmpty().withMessage('App ID is required'),
+    query('userId')
+      .notEmpty().withMessage('User ID is required')
+      .isLength({ max: 255 }).withMessage('User ID too long'),
+    query('app_id')
+      .notEmpty().withMessage('App ID is required')
+      .isUUID(4).withMessage('Invalid app_id format'),
   ],
   async (req, res) => {
     try {
@@ -414,6 +433,12 @@ router.get(
   '/top-events',
   isAuthenticated,
   analyticsLimiter,
+  perUserRateLimit(100, 60000),
+  [
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
+  ],
   async (req, res) => {
     try {
       const { app_id, startDate, endDate, limit } = req.query;
@@ -508,6 +533,7 @@ router.get(
   '/device-distribution',
   isAuthenticated,
   analyticsLimiter,
+  perUserRateLimit(100, 60000),
   async (req, res) => {
     try {
       const { app_id, startDate, endDate } = req.query;
@@ -610,6 +636,12 @@ router.get(
   '/events-over-time',
   isAuthenticated,
   analyticsLimiter,
+  perUserRateLimit(100, 60000),
+  [
+    query('interval')
+      .optional()
+      .isIn(['hour', 'day', 'week', 'month']).withMessage('Invalid interval. Must be hour, day, week, or month'),
+  ],
   async (req, res) => {
     try {
       const { app_id, event, startDate, endDate, interval } = req.query;

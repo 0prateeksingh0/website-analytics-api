@@ -7,6 +7,9 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) UNIQUE NOT NULL,
     name VARCHAR(255),
     profile_picture TEXT,
+    role VARCHAR(50) DEFAULT 'user' CHECK (role IN ('guest', 'user', 'admin', 'super_admin')),
+    is_active BOOLEAN DEFAULT TRUE,
+    last_login_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -30,6 +33,9 @@ CREATE TABLE IF NOT EXISTS api_keys (
     key_prefix VARCHAR(10) NOT NULL,
     name VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,
+    permissions JSONB DEFAULT '{"read": true, "write": true}'::jsonb,
+    allowed_ips TEXT[], -- IP whitelist for API key
+    rate_limit_per_hour INTEGER DEFAULT 10000,
     expires_at TIMESTAMP WITH TIME ZONE,
     last_used_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -246,5 +252,70 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 -- Enable pg_trgm for text search optimization
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Audit Logs table (for security monitoring)
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    action VARCHAR(50) NOT NULL,
+    resource TEXT NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    success BOOLEAN DEFAULT TRUE,
+    error_message TEXT,
+    metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for audit logs
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+
+-- Security Events table (failed login attempts, suspicious activity)
+CREATE TABLE IF NOT EXISTS security_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_type VARCHAR(100) NOT NULL,
+    severity VARCHAR(20) DEFAULT 'low' CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+    ip_address VARCHAR(45),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    description TEXT,
+    metadata JSONB,
+    resolved BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for security events
+CREATE INDEX IF NOT EXISTS idx_security_events_created_at ON security_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_security_events_severity ON security_events(severity);
+CREATE INDEX IF NOT EXISTS idx_security_events_resolved ON security_events(resolved) WHERE resolved = FALSE;
+CREATE INDEX IF NOT EXISTS idx_security_events_ip ON security_events(ip_address);
+
+-- Function to log security events
+CREATE OR REPLACE FUNCTION log_security_event(
+    p_event_type VARCHAR,
+    p_severity VARCHAR,
+    p_ip_address VARCHAR,
+    p_user_id UUID,
+    p_description TEXT,
+    p_metadata JSONB
+) RETURNS UUID AS $$
+DECLARE
+    v_event_id UUID;
+BEGIN
+    INSERT INTO security_events (event_type, severity, ip_address, user_id, description, metadata)
+    VALUES (p_event_type, p_severity, p_ip_address, p_user_id, p_description, p_metadata)
+    RETURNING id INTO v_event_id;
+    
+    RETURN v_event_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add role index on users
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active) WHERE is_active = TRUE;
+
+-- Add permissions index on api_keys
+CREATE INDEX IF NOT EXISTS idx_api_keys_permissions ON api_keys USING GIN (permissions);
 
 
