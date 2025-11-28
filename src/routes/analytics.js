@@ -7,7 +7,7 @@ const { eventCollectionLimiter, analyticsLimiter } = require('../middleware/rate
 const { validateUUID, perUserRateLimit } = require('../middleware/security');
 const AnalyticsEvent = require('../models/AnalyticsEvent');
 const App = require('../models/App');
-const { cacheGet, cacheSet, cacheDelPattern } = require('../config/redis');
+const { invalidateCacheByTag } = require('../utils/cacheOptimizer');
 
 const router = express.Router();
 
@@ -119,8 +119,8 @@ router.post(
         city: metadata?.city,
       });
 
-      // Clear cache
-      await cacheDelPattern(`analytics:${req.appId}:*`);
+      // Clear cache using tag-based invalidation (faster)
+      await invalidateCacheByTag(`analytics:${req.appId}`);
 
       res.status(201).json({
         success: true,
@@ -230,18 +230,7 @@ router.get(
         });
       }
 
-      // Check cache
-      const cacheKey = `analytics:event-summary:${appIds.join(',')}:${event || 'all'}:${startDate || ''}:${endDate || ''}`;
-      const cachedData = await cacheGet(cacheKey);
-      if (cachedData) {
-        return res.json({
-          success: true,
-          data: cachedData,
-          cached: true,
-        });
-      }
-
-      // Query events
+      // Query events (caching is now handled in the model)
       const summary = await AnalyticsEvent.getEventSummary({
         appIds,
         eventName: event,
@@ -261,9 +250,6 @@ router.get(
           tablet: parseInt(s.tablet_count),
         },
       }));
-
-      // Cache result
-      await cacheSet(cacheKey, formattedSummary, 300);
 
       res.json({
         success: true,
@@ -339,18 +325,7 @@ router.get(
         });
       }
 
-      // Check cache
-      const cacheKey = `analytics:user-stats:${app_id}:${userId}`;
-      const cachedData = await cacheGet(cacheKey);
-      if (cachedData) {
-        return res.json({
-          success: true,
-          data: cachedData,
-          cached: true,
-        });
-      }
-
-      // Get user stats
+      // Get user stats (caching is now handled in the model)
       const stats = await AnalyticsEvent.getUserStats({
         appId: app_id,
         userId,
@@ -377,9 +352,6 @@ router.get(
         lastEvent: stats.last_event,
         recentEvents: stats.recent_events ? stats.recent_events.slice(0, 10) : [],
       };
-
-      // Cache the result
-      await cacheSet(cacheKey, formattedStats, 300); // 5 minutes TTL
 
       res.json({
         success: true,
@@ -466,26 +438,13 @@ router.get(
         });
       }
 
-      // Check cache
-      const cacheKey = `analytics:top-events:${appIds.join(',')}:${startDate || ''}:${endDate || ''}:${limit || 10}`;
-      const cachedData = await cacheGet(cacheKey);
-      if (cachedData) {
-        return res.json({
-          success: true,
-          data: cachedData,
-          cached: true,
-        });
-      }
-
+      // Get top events (caching is now handled in the model)
       const topEvents = await AnalyticsEvent.getTopEvents({
         appIds,
         startDate,
         endDate,
         limit: parseInt(limit) || 10,
       });
-
-      // Cache the result
-      await cacheSet(cacheKey, topEvents, 300);
 
       res.json({
         success: true,
@@ -561,25 +520,12 @@ router.get(
         });
       }
 
-      // Check cache
-      const cacheKey = `analytics:device-dist:${appIds.join(',')}:${startDate || ''}:${endDate || ''}`;
-      const cachedData = await cacheGet(cacheKey);
-      if (cachedData) {
-        return res.json({
-          success: true,
-          data: cachedData,
-          cached: true,
-        });
-      }
-
+      // Get device distribution (caching is now handled in the model)
       const deviceDist = await AnalyticsEvent.getDeviceDistribution({
         appIds,
         startDate,
         endDate,
       });
-
-      // Cache the result
-      await cacheSet(cacheKey, deviceDist, 300);
 
       res.json({
         success: true,
@@ -669,17 +615,7 @@ router.get(
         });
       }
 
-      // Check cache
-      const cacheKey = `analytics:events-time:${appIds.join(',')}:${event || ''}:${startDate || ''}:${endDate || ''}:${interval || 'day'}`;
-      const cachedData = await cacheGet(cacheKey);
-      if (cachedData) {
-        return res.json({
-          success: true,
-          data: cachedData,
-          cached: true,
-        });
-      }
-
+      // Get events over time (caching is now handled in the model)
       const eventsOverTime = await AnalyticsEvent.getEventsOverTime({
         appIds,
         eventName: event,
@@ -687,9 +623,6 @@ router.get(
         endDate,
         interval: interval || 'day',
       });
-
-      // Cache the result
-      await cacheSet(cacheKey, eventsOverTime, 300);
 
       res.json({
         success: true,
