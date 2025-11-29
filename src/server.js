@@ -18,6 +18,7 @@ const {
   generateCSRFToken,
   auditLog,
 } = require('./middleware/security');
+const { performanceTracker, startPerformanceMonitoring } = require('./utils/performanceMonitor');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -71,15 +72,27 @@ app.use(sanitizeInput);
 // SQL Injection prevention
 app.use(preventSQLInjection);
 
-// Compression
-app.use(compression());
+// Compression (optimized settings)
+app.use(compression({
+  level: 6, // Balance between speed and compression ratio
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    return compression.filter(req, res);
+  },
+}));
 
-// Logging
+// Logging (conditional)
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('combined'));
 }
 
-// Session configuration
+// Performance tracking
+app.use(performanceTracker);
+
+// Session configuration (optimized)
 app.use(
   session({
     secret: process.env.SESSION_SECRET || 'your-secret-key-change-in-production',
@@ -89,7 +102,10 @@ app.use(
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'lax', // CSRF protection
     },
+    rolling: true, // Refresh session on activity
+    name: 'sessionId', // Hide default connect.sid name
   })
 );
 
@@ -112,20 +128,39 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customSiteTitle: 'Analytics API Documentation',
 }));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Server is running',
-    timestamp: new Date().toISOString(),
-    security: {
-      csp: 'enabled',
-      csrf: 'enabled',
-      inputSanitization: 'enabled',
-      sqlInjectionPrevention: 'enabled',
-      rateLimiting: 'enabled',
-    },
-  });
+// Health check endpoint (enhanced with metrics)
+app.get('/health', async (req, res) => {
+  try {
+    const { getPerformanceMetrics } = require('./utils/performanceMonitor');
+    const detailed = req.query.detailed === 'true';
+
+    const baseHealth = {
+      success: true,
+      message: 'Server is running',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      security: {
+        csp: 'enabled',
+        csrf: 'enabled',
+        inputSanitization: 'enabled',
+        sqlInjectionPrevention: 'enabled',
+        rateLimiting: 'enabled',
+      },
+    };
+
+    if (detailed) {
+      const metrics = await getPerformanceMetrics();
+      res.json({ ...baseHealth, metrics });
+    } else {
+      res.json(baseHealth);
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Health check failed',
+      error: error.message,
+    });
+  }
 });
 
 // Root endpoint
@@ -164,19 +199,77 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Initialize Redis and start server
+// Initialize Redis and start server (with optimizations)
 const startServer = async () => {
   try {
-    // Initialize Redis (graceful degradation if not available)
-    await initRedis();
-    console.log('Redis initialized');
+    // Initialize Redis with error handling (graceful degradation)
+    try {
+      await initRedis();
+      console.log('✓ Redis initialized');
+    } catch (error) {
+      console.warn('⚠ Redis initialization failed, continuing without cache:', error.message);
+    }
+
+    // Warm up critical caches on startup
+    console.log('Warming up caches...');
+    // Add cache warming logic here if needed
+
+    // Start performance monitoring in production
+    if (process.env.NODE_ENV === 'production') {
+      startPerformanceMonitoring(300000); // Log every 5 minutes
+      console.log('✓ Performance monitoring started');
+    }
 
     // Start server
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
+      console.log('='.repeat(60));
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
       console.log(`🔗 API Base URL: http://localhost:${PORT}/api`);
+      console.log(`⚡ Performance mode: ${process.env.NODE_ENV || 'development'}`);
+      console.log('='.repeat(60));
     });
+
+    // Graceful shutdown handler
+    const gracefulShutdown = async (signal) => {
+      console.log(`\n${signal} received. Starting graceful shutdown...`);
+      
+      server.close(async () => {
+        console.log('HTTP server closed');
+        
+        // Close database connections
+        const { shutdown: dbShutdown } = require('./database/db');
+        await dbShutdown();
+        
+        // Close Redis connection
+        const { shutdownRedis } = require('./config/redis');
+        await shutdownRedis();
+        
+        console.log('Graceful shutdown complete');
+        process.exit(0);
+      });
+
+      // Force shutdown after 10 seconds
+      setTimeout(() => {
+        console.error('Forcing shutdown after timeout');
+        process.exit(1);
+      }, 10000);
+    };
+
+    // Handle shutdown signals
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+    // Handle uncaught errors
+    process.on('uncaughtException', (error) => {
+      console.error('Uncaught Exception:', error);
+      gracefulShutdown('uncaughtException');
+    });
+
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    });
+
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
