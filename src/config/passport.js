@@ -6,8 +6,18 @@ passport.serializeUser((user, done) => {
   done(null, user.id);
 });
 
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const User = require('../models/User');
+const { enhancedCacheGet, enhancedCacheSet } = require('../utils/cacheOptimizer');
+
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
 passport.deserializeUser(async (id, done) => {
   try {
+    // Use cached User.findById (already optimized in User model)
     const user = await User.findById(id);
     done(null, user);
   } catch (error) {

@@ -19,6 +19,7 @@ const {
   auditLog,
 } = require('./middleware/security');
 const { performanceTracker, startPerformanceMonitoring } = require('./utils/performanceMonitor');
+const optimizeResponse = require('./middleware/responseOptimizer');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -92,6 +93,9 @@ if (process.env.NODE_ENV !== 'test') {
 // Performance tracking
 app.use(performanceTracker);
 
+// Response optimization (ETag, cache headers)
+app.use(optimizeResponse);
+
 // Session configuration (optimized)
 app.use(
   session({
@@ -135,9 +139,9 @@ app.get('/health', async (req, res) => {
     const detailed = req.query.detailed === 'true';
 
     const baseHealth = {
-      success: true,
-      message: 'Server is running',
-      timestamp: new Date().toISOString(),
+    success: true,
+    message: 'Server is running',
+    timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       security: {
         csp: 'enabled',
@@ -159,7 +163,7 @@ app.get('/health', async (req, res) => {
       success: false,
       message: 'Health check failed',
       error: error.message,
-    });
+  });
   }
 });
 
@@ -204,7 +208,7 @@ const startServer = async () => {
   try {
     // Initialize Redis with error handling (graceful degradation)
     try {
-      await initRedis();
+    await initRedis();
       console.log('✓ Redis initialized');
     } catch (error) {
       console.warn('⚠ Redis initialization failed, continuing without cache:', error.message);
